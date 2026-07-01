@@ -1212,7 +1212,10 @@
                 {selectedLocation && (
                   <div className="space-y-6">
                     {selectedLocation.history && selectedLocation.history.length > 0 ? (
-                      selectedLocation.history.map((entry, idx) => {
+                      [...selectedLocation.history]
+                        .map((entry, originalIndex) => ({ entry, originalIndex }))
+                        .sort((a, b) => new Date(b.entry.timestamp || 0) - new Date(a.entry.timestamp || 0))
+                        .map(({ entry, originalIndex }) => {
                         const entryDate = new Date(entry.timestamp).toLocaleDateString('en-US', {
                           year: 'numeric',
                           month: 'short',
@@ -1220,7 +1223,7 @@
                         });
 
                         return (
-                          <div key={idx} className="relative pl-6 pb-6 border-l-2 border-gray-200 last:border-0 last:pb-0">
+                          <div key={originalIndex} className="relative pl-6 pb-6 border-l-2 border-gray-200 last:border-0 last:pb-0">
                             <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-blue-500 border-2 border-white shadow-sm"></div>
 
                             <div className="flex items-center justify-between mb-1 gap-2">
@@ -1231,7 +1234,7 @@
 
                               <button
                                 type="button"
-                                onClick={(e) => handleDeleteHistoryEntry(idx, e)}
+                                onClick={(e) => handleDeleteHistoryEntry(originalIndex, e)}
                                 className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-md border border-red-100"
                                 title="Delete this note/photo"
                                 aria-label="Delete this note/photo"
