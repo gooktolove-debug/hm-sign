@@ -191,6 +191,74 @@
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
     }
+    .auth-screen {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: linear-gradient(160deg, #071827 0%, #0b2940 55%, #0f3a4d 100%);
+      color: #eaf6ff;
+    }
+    .auth-card {
+      width: min(430px, 100%);
+      padding: 30px;
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      border-radius: 20px;
+      background: rgba(8, 31, 49, 0.94);
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+    .auth-input {
+      width: 100%;
+      box-sizing: border-box;
+      margin-top: 8px;
+      padding: 13px 14px;
+      border: 1px solid #45657c;
+      border-radius: 10px;
+      background: #ffffff;
+      color: #0f172a;
+      outline: none;
+    }
+    .auth-input:focus {
+      border-color: #2dd4bf;
+      box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.2);
+    }
+    .auth-button {
+      width: 100%;
+      margin-top: 16px;
+      padding: 13px 16px;
+      border: 0;
+      border-radius: 10px;
+      background: #2dd4bf;
+      color: #05242b;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .auth-button:hover { background: #5eead4; }
+    .auth-button:disabled { opacity: 0.58; cursor: wait; }
+    .auth-spinner {
+      width: 34px;
+      height: 34px;
+      border: 4px solid rgba(255, 255, 255, 0.25);
+      border-top-color: #5eead4;
+      border-radius: 9999px;
+      animation: spin 0.9s linear infinite;
+    }
+    .sign-out-btn {
+      height: 52px;
+      padding: 0 16px;
+      border: none;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%);
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.22);
+    }
+    .sign-out-btn:hover { background: linear-gradient(135deg, #991b1b 0%, #7f1d1d 100%); }
+
     @media (max-width: 640px) {
       .map-action-btn {
         width: 48px;
@@ -226,7 +294,13 @@
     const CACHE_KEY = 'hm_signs_cache_v4';
     const IMAGE_BUCKET = 'marker-images';
 
-    const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+    const sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    });
 
     const Icons = {
       MapPin: (p) => (
@@ -1095,6 +1169,18 @@
               >
                 <Icons.Settings className="map-action-icon" />
               </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const { error } = await sb.auth.signOut();
+                  if (error) console.error('Sign-out error:', error);
+                }}
+                className="sign-out-btn"
+                title="Sign out"
+                aria-label="Sign out"
+              >
+                Sign out
+              </button>
             </div>
           </div>
 
@@ -1430,8 +1516,114 @@
       );
     }
 
+    function AuthenticatedApp() {
+      const [session, setSession] = useState(null);
+      const [checking, setChecking] = useState(true);
+      const [email, setEmail] = useState('');
+      const [sending, setSending] = useState(false);
+      const [message, setMessage] = useState('');
+
+      useEffect(() => {
+        let mounted = true;
+
+        async function checkSession() {
+          const { data, error } = await sb.auth.getSession();
+          if (!mounted) return;
+          if (error) console.error('Session check error:', error);
+          setSession(data?.session || null);
+          setChecking(false);
+        }
+
+        checkSession();
+
+        const { data: listener } = sb.auth.onAuthStateChange((event, nextSession) => {
+          if (!mounted) return;
+          setSession(nextSession || null);
+          setChecking(false);
+          if (event === 'SIGNED_OUT') setMessage('');
+        });
+
+        return () => {
+          mounted = false;
+          listener?.subscription?.unsubscribe();
+        };
+      }, []);
+
+      async function sendMagicLink(event) {
+        event?.preventDefault();
+        const cleanEmail = email.trim().toLowerCase();
+        if (!cleanEmail) {
+          setMessage('Please enter your registered email address.');
+          return;
+        }
+
+        setSending(true);
+        setMessage('Sending secure sign-in link...');
+
+        const redirectUrl = window.location.origin + window.location.pathname;
+        const { error } = await sb.auth.signInWithOtp({
+          email: cleanEmail,
+          options: {
+            shouldCreateUser: false,
+            emailRedirectTo: redirectUrl,
+          },
+        });
+
+        setSending(false);
+        if (error) {
+          console.error('Magic Link error:', error);
+          setMessage('The sign-in link could not be sent. Check the email address and try again.');
+          return;
+        }
+
+        setMessage('Check your email and open the sign-in link in this browser.');
+      }
+
+      if (checking) {
+        return (
+          <div className="auth-screen" aria-live="polite">
+            <div className="auth-spinner" aria-label="Checking access"></div>
+          </div>
+        );
+      }
+
+      if (!session) {
+        return (
+          <div className="auth-screen">
+            <form className="auth-card" onSubmit={sendMagicLink}>
+              <div className="text-xs font-bold tracking-widest uppercase text-teal-300 mb-3">Operations Monitoring</div>
+              <h1 className="text-2xl font-bold text-white mb-2">HM Signs access</h1>
+              <p className="text-sm text-slate-300 mb-6">
+                Enter your registered email address. Supabase will send a secure one-time sign-in link.
+              </p>
+              <label htmlFor="authEmail" className="block text-sm font-semibold text-slate-100">
+                Email address
+              </label>
+              <input
+                id="authEmail"
+                className="auth-input"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="name@example.com"
+                disabled={sending}
+                required
+              />
+              <button className="auth-button" type="submit" disabled={sending}>
+                {sending ? 'Sending...' : 'Send Magic Link'}
+              </button>
+              <p className="min-h-[24px] mt-4 text-sm text-slate-200" role="status">{message}</p>
+            </form>
+          </div>
+        );
+      }
+
+      return <MainApp />;
+    }
+
     const reactRoot = ReactDOM.createRoot(document.getElementById('root'));
-    reactRoot.render(<MainApp />);
+    reactRoot.render(<AuthenticatedApp />);
   </script>
 </body>
 </html>
