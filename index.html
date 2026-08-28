@@ -1520,12 +1520,13 @@
       const [session, setSession] = useState(null);
       const [checking, setChecking] = useState(true);
       const [email, setEmail] = useState('');
-      const [sending, setSending] = useState(false);
+      const [otp, setOtp] = useState('');
+      const [step, setStep] = useState('email');
+      const [busy, setBusy] = useState(false);
       const [message, setMessage] = useState('');
 
       useEffect(() => {
         let mounted = true;
-
         async function checkSession() {
           const { data, error } = await sb.auth.getSession();
           if (!mounted) return;
@@ -1533,50 +1534,77 @@
           setSession(data?.session || null);
           setChecking(false);
         }
-
         checkSession();
-
         const { data: listener } = sb.auth.onAuthStateChange((event, nextSession) => {
           if (!mounted) return;
           setSession(nextSession || null);
           setChecking(false);
-          if (event === 'SIGNED_OUT') setMessage('');
+          if (event === 'SIGNED_OUT') {
+            setStep('email');
+            setOtp('');
+            setMessage('');
+          }
         });
-
         return () => {
           mounted = false;
           listener?.subscription?.unsubscribe();
         };
       }, []);
 
-      async function sendMagicLink(event) {
+      async function sendEmailOtp(event) {
         event?.preventDefault();
         const cleanEmail = email.trim().toLowerCase();
         if (!cleanEmail) {
           setMessage('Please enter your registered email address.');
           return;
         }
-
-        setSending(true);
-        setMessage('Sending secure sign-in link...');
-
-        const redirectUrl = window.location.origin + window.location.pathname;
+        setBusy(true);
+        setMessage('Sending verification code...');
         const { error } = await sb.auth.signInWithOtp({
           email: cleanEmail,
-          options: {
-            shouldCreateUser: false,
-            emailRedirectTo: redirectUrl,
-          },
+          options: { shouldCreateUser: false },
         });
-
-        setSending(false);
+        setBusy(false);
         if (error) {
-          console.error('Magic Link error:', error);
-          setMessage('The sign-in link could not be sent. Check the email address and try again.');
+          console.error('Email OTP error:', error);
+          setMessage('The verification code could not be sent. Check the email address and try again.');
           return;
         }
+        setEmail(cleanEmail);
+        setStep('otp');
+        setMessage('A 6-digit verification code has been sent to your email.');
+      }
 
-        setMessage('Check your email and open the sign-in link in this browser.');
+      async function verifyEmailOtp(event) {
+        event?.preventDefault();
+        const cleanOtp = otp.replace(/\D/g, '').slice(0, 6);
+        if (!/^\d{6}$/.test(cleanOtp)) {
+          setMessage('Please enter the 6-digit verification code.');
+          return;
+        }
+        setBusy(true);
+        setMessage('Verifying code...');
+        const { data, error } = await sb.auth.verifyOtp({
+          email: email.trim().toLowerCase(),
+          token: cleanOtp,
+          type: 'email',
+        });
+        setBusy(false);
+        if (error || !data?.session) {
+          console.error('OTP verification error:', error);
+          setMessage('The code is incorrect or has expired. Request a new code and try again.');
+          return;
+        }
+        setSession(data.session);
+        setOtp('');
+        setMessage('');
+      }
+
+      function changeEmail() {
+        if (busy) return;
+        setStep('email');
+        setOtp('');
+        setMessage('');
       }
 
       if (checking) {
@@ -1590,38 +1618,34 @@
       if (!session) {
         return (
           <div className="auth-screen">
-            <form className="auth-card" onSubmit={sendMagicLink}>
+            <form className="auth-card" onSubmit={step === 'email' ? sendEmailOtp : verifyEmailOtp}>
               <div className="text-xs font-bold tracking-widest uppercase text-teal-300 mb-3">Operations Monitoring</div>
               <h1 className="text-2xl font-bold text-white mb-2">HM Signs access</h1>
-              <p className="text-sm text-slate-300 mb-6">
-                Enter your registered email address. Supabase will send a secure one-time sign-in link.
-              </p>
-              <label htmlFor="authEmail" className="block text-sm font-semibold text-slate-100">
-                Email address
-              </label>
-              <input
-                id="authEmail"
-                className="auth-input"
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="name@example.com"
-                disabled={sending}
-                required
-              />
-              <button className="auth-button" type="submit" disabled={sending}>
-                {sending ? 'Sending...' : 'Send Magic Link'}
-              </button>
+              {step === 'email' ? (
+                <>
+                  <p className="text-sm text-slate-300 mb-6">Enter your registered email address to receive a 6-digit verification code.</p>
+                  <label htmlFor="authEmail" className="block text-sm font-semibold text-slate-100">Email address</label>
+                  <input id="authEmail" className="auth-input" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" disabled={busy} required />
+                  <button className="auth-button" type="submit" disabled={busy}>{busy ? 'Sending...' : 'Send verification code'}</button>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-slate-300 mb-2">Enter the 6-digit code sent to:</p>
+                  <p className="text-sm font-semibold text-teal-200 mb-6 break-all">{email}</p>
+                  <label htmlFor="authOtp" className="block text-sm font-semibold text-slate-100">Verification code</label>
+                  <input id="authOtp" className="auth-input text-center text-2xl tracking-[0.35em] font-bold" type="text" inputMode="numeric" autoComplete="one-time-code" value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="000000" maxLength="6" disabled={busy} autoFocus required />
+                  <button className="auth-button" type="submit" disabled={busy || otp.length !== 6}>{busy ? 'Verifying...' : 'Verify and sign in'}</button>
+                  <button type="button" onClick={sendEmailOtp} disabled={busy} className="w-full mt-3 py-2.5 rounded-lg border border-slate-500 text-slate-100 text-sm font-semibold hover:bg-white/10 disabled:opacity-50">Resend code</button>
+                  <button type="button" onClick={changeEmail} disabled={busy} className="w-full mt-2 py-2 text-slate-300 text-sm hover:text-white disabled:opacity-50">Use a different email address</button>
+                </>
+              )}
               <p className="min-h-[24px] mt-4 text-sm text-slate-200" role="status">{message}</p>
             </form>
           </div>
         );
       }
-
       return <MainApp />;
     }
-
     const reactRoot = ReactDOM.createRoot(document.getElementById('root'));
     reactRoot.render(<AuthenticatedApp />);
   </script>
