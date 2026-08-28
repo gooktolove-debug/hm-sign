@@ -1572,14 +1572,14 @@
         }
         setEmail(cleanEmail);
         setStep('otp');
-        setMessage('A 6-digit verification code has been sent to your email.');
+        setMessage('An 8-digit verification code has been sent to your email.');
       }
 
       async function verifyEmailOtp(event) {
         event?.preventDefault();
-        const cleanOtp = otp.replace(/\D/g, '').slice(0, 6);
-        if (!/^\d{6}$/.test(cleanOtp)) {
-          setMessage('Please enter the 6-digit verification code.');
+        const cleanOtp = otp.replace(/\D/g, '').slice(0, 8);
+        if (!/^\d{8}$/.test(cleanOtp)) {
+          setMessage('Please enter the 8-digit verification code.');
           return;
         }
         setBusy(true);
@@ -1623,18 +1623,18 @@
               <h1 className="text-2xl font-bold text-white mb-2">HM Signs access</h1>
               {step === 'email' ? (
                 <>
-                  <p className="text-sm text-slate-300 mb-6">Enter your registered email address to receive a 6-digit verification code.</p>
+                  <p className="text-sm text-slate-300 mb-6">Enter your registered email address to receive an 8-digit verification code.</p>
                   <label htmlFor="authEmail" className="block text-sm font-semibold text-slate-100">Email address</label>
                   <input id="authEmail" className="auth-input" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" disabled={busy} required />
                   <button className="auth-button" type="submit" disabled={busy}>{busy ? 'Sending...' : 'Send verification code'}</button>
                 </>
               ) : (
                 <>
-                  <p className="text-sm text-slate-300 mb-2">Enter the 6-digit code sent to:</p>
+                  <p className="text-sm text-slate-300 mb-2">Enter the 8-digit code sent to:</p>
                   <p className="text-sm font-semibold text-teal-200 mb-6 break-all">{email}</p>
                   <label htmlFor="authOtp" className="block text-sm font-semibold text-slate-100">Verification code</label>
-                  <input id="authOtp" className="auth-input text-center text-2xl tracking-[0.35em] font-bold" type="text" inputMode="numeric" autoComplete="one-time-code" value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="000000" maxLength="6" disabled={busy} autoFocus required />
-                  <button className="auth-button" type="submit" disabled={busy || otp.length !== 6}>{busy ? 'Verifying...' : 'Verify and sign in'}</button>
+                  <input id="authOtp" className="auth-input text-center text-2xl tracking-[0.35em] font-bold" type="text" inputMode="numeric" autoComplete="one-time-code" value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="00000000" maxLength="8" disabled={busy} autoFocus required />
+                  <button className="auth-button" type="submit" disabled={busy || otp.length !== 8}>{busy ? 'Verifying...' : 'Verify and sign in'}</button>
                   <button type="button" onClick={sendEmailOtp} disabled={busy} className="w-full mt-3 py-2.5 rounded-lg border border-slate-500 text-slate-100 text-sm font-semibold hover:bg-white/10 disabled:opacity-50">Resend code</button>
                   <button type="button" onClick={changeEmail} disabled={busy} className="w-full mt-2 py-2 text-slate-300 text-sm hover:text-white disabled:opacity-50">Use a different email address</button>
                 </>
