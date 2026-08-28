@@ -814,8 +814,10 @@
         if (!mapInstanceRef.current && mapRef.current) {
           const map = L.map(mapRef.current, { zoomControl: false }).setView([-36.8485, 174.7633], 13);
 
-          L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-            attribution: '© OSM © CARTO',
+          L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles © Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+            maxZoom: 19,
+            maxNativeZoom: 19,
           }).addTo(map);
 
           markersLayerRef.current = L.layerGroup().addTo(map);
