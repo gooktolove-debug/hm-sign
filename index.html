@@ -292,7 +292,9 @@
     const SUPABASE_KEY = 'sb_publishable_iC7kbinoy61_5eQCnrV25Q_OioA7Y1x';
     const APP_STATE_ID = 'main';
     const CACHE_KEY = 'hm_signs_cache_v4';
-    const IMAGE_BUCKET = 'marker-images';
+    const IMAGE_BUCKET = 'hm-sign';
+    const LEGACY_IMAGE_BUCKET = 'marker-images';
+    const IMAGE_TTL = 21600;
 
     const sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
       auth: {
@@ -389,12 +391,37 @@
       ),
     };
 
+    function imagePath(value) {
+      if (!value) return null;
+      if (!/^https?:/i.test(value)) return String(value).replace(/^\/+/, '');
+      for (const bucket of [IMAGE_BUCKET, LEGACY_IMAGE_BUCKET]) {
+        for (const kind of ['public', 'sign']) {
+          const marker = `/storage/v1/object/${kind}/${bucket}/`;
+          const i = value.indexOf(marker);
+          if (i >= 0) {
+            const tail = value.slice(i + marker.length).split('?')[0].split('#')[0];
+            try { return decodeURIComponent(tail); } catch (_) { return tail; }
+          }
+        }
+      }
+      return null;
+    }
     function normalizeMarkers(input) {
       if (!Array.isArray(input)) return [];
       return input.map((m) => ({
         ...m,
-        history: Array.isArray(m.history) ? m.history : [],
+        latestImage: imagePath(m.latestImage),
+        history: (Array.isArray(m.history) ? m.history : []).map(e => ({...e, image:imagePath(e.image)})),
       }));
+    }
+    async function signMarkers(input) {
+      const persistent = normalizeMarkers(input);
+      const paths = [...new Set(persistent.flatMap(m => [m.latestImage, ...(m.history||[]).map(e=>e.image)].filter(Boolean)))];
+      if (!paths.length) return persistent;
+      const {data,error}=await sb.storage.from(IMAGE_BUCKET).createSignedUrls(paths,IMAGE_TTL);
+      if(error) throw error;
+      const urls={}; (data||[]).forEach(x=>{if(x.path&&x.signedUrl)urls[x.path]=x.signedUrl});
+      return persistent.map(m=>({...m,latestImage:m.latestImage?urls[m.latestImage]||null:null,history:(m.history||[]).map(e=>({...e,image:e.image?urls[e.image]||null:null}))}));
     }
 
     function MainApp() {
@@ -648,17 +675,10 @@
           return null;
         }
 
-        const { data } = sb.storage.from(IMAGE_BUCKET).getPublicUrl(filePath);
-        return data.publicUrl;
+        return filePath;
       }
 
-      function extractStoragePathFromUrl(url) {
-        if (!url) return null;
-        const marker = `/storage/v1/object/public/${IMAGE_BUCKET}/`;
-        const idx = url.indexOf(marker);
-        if (idx === -1) return null;
-        return decodeURIComponent(url.slice(idx + marker.length));
-      }
+      function extractStoragePathFromUrl(url) { return imagePath(url); }
 
       function rebuildMarkerAfterHistoryChange(marker, nextHistory) {
         const history = Array.isArray(nextHistory) ? nextHistory : [];
@@ -781,7 +801,7 @@
         const cached = localStorage.getItem(CACHE_KEY);
         if (cached) {
           try {
-            setMarkers(normalizeMarkers(JSON.parse(cached)));
+            setMarkers([]);
           } catch (e) {
             console.error('Failed to parse cached data:', e);
           }
@@ -801,9 +821,10 @@
             return;
           }
 
-          const remoteMarkers = data && data.length > 0 ? normalizeMarkers(data[0].data) : [];
+          const persistentMarkers = data && data.length > 0 ? normalizeMarkers(data[0].data) : [];
+          const remoteMarkers = await signMarkers(persistentMarkers);
           setMarkers(remoteMarkers);
-          localStorage.setItem(CACHE_KEY, JSON.stringify(remoteMarkers));
+          localStorage.setItem(CACHE_KEY, JSON.stringify(persistentMarkers));
           setSyncMessage('Load complete');
         }
 
@@ -1031,11 +1052,14 @@
         let uploadedImageUrl = null;
 
         if (selectedFile) {
-          uploadedImageUrl = await uploadImageToStorage(selectedFile);
-          if (!uploadedImageUrl) {
+          const uploadedImagePath = await uploadImageToStorage(selectedFile);
+          if (!uploadedImagePath) {
             setIsUploading(false);
             return;
           }
+          const {data:signed,error:signError}=await sb.storage.from(IMAGE_BUCKET).createSignedUrl(uploadedImagePath,IMAGE_TTL);
+          if(signError){alert('Image uploaded but private preview failed: '+signError.message);setIsUploading(false);return;}
+          uploadedImageUrl=signed?.signedUrl||null;
         }
 
         const newEntry = {
