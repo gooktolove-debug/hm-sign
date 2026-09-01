@@ -414,14 +414,29 @@
         history: (Array.isArray(m.history) ? m.history : []).map(e => ({...e, image:imagePath(e.image)})),
       }));
     }
+    function absoluteSupabaseUrl(value) {
+      if (!value) return null;
+      if (/^https?:/i.test(value)) return value;
+      return `${SUPABASE_URL}${value.startsWith('/') ? '' : '/'}${value}`;
+    }
     async function signMarkers(input) {
       const persistent = normalizeMarkers(input);
       const paths = [...new Set(persistent.flatMap(m => [m.latestImage, ...(m.history||[]).map(e=>e.image)].filter(Boolean)))];
       if (!paths.length) return persistent;
-      const {data,error}=await sb.storage.from(IMAGE_BUCKET).createSignedUrls(paths,IMAGE_TTL);
-      if(error) throw error;
-      const urls={}; (data||[]).forEach(x=>{if(x.path&&x.signedUrl)urls[x.path]=x.signedUrl});
-      return persistent.map(m=>({...m,latestImage:m.latestImage?urls[m.latestImage]||null:null,history:(m.history||[]).map(e=>({...e,image:e.image?urls[e.image]||null:null}))}));
+      const pairs = await Promise.all(paths.map(async (path) => {
+        const { data, error } = await sb.storage.from(IMAGE_BUCKET).createSignedUrl(path, IMAGE_TTL);
+        if (error) {
+          console.warn('Could not sign HM Sign image:', path, error);
+          return [path, null];
+        }
+        return [path, absoluteSupabaseUrl(data?.signedUrl)];
+      }));
+      const urls = Object.fromEntries(pairs);
+      return persistent.map(m => ({
+        ...m,
+        latestImage: m.latestImage ? (urls[m.latestImage] || null) : null,
+        history: (m.history || []).map(e => ({ ...e, image: e.image ? (urls[e.image] || null) : null })),
+      }));
     }
 
     function MainApp() {
@@ -1059,7 +1074,7 @@
           }
           const {data:signed,error:signError}=await sb.storage.from(IMAGE_BUCKET).createSignedUrl(uploadedImagePath,IMAGE_TTL);
           if(signError){alert('Image uploaded but private preview failed: '+signError.message);setIsUploading(false);return;}
-          uploadedImageUrl=signed?.signedUrl||null;
+          uploadedImageUrl=absoluteSupabaseUrl(signed?.signedUrl);
         }
 
         const newEntry = {
@@ -1102,7 +1117,6 @@
           setIsAddingMode(false);
         }
 
-        newMarkers = normalizeMarkers(newMarkers);
         setMarkers(newMarkers);
         await saveSharedData(newMarkers);
 
@@ -1134,7 +1148,8 @@
       const handleImport = async () => {
         try {
           if (!importText) return;
-          const parsed = normalizeMarkers(JSON.parse(importText));
+          const parsedPersistent = normalizeMarkers(JSON.parse(importText));
+          const parsed = await signMarkers(parsedPersistent);
           if (!Array.isArray(parsed)) {
             alert('Invalid data format.');
             return;
